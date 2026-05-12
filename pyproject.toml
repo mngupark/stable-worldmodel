@@ -36,7 +36,6 @@ swm = "stable_worldmodel.cli:app"
 [project.optional-dependencies]
 train = [
     "transformers>=4.50.0",
-    "stable-pretraining",
     "hydra-core",
     "hydra-submitit-launcher",
     "wandb",
