@@ -1,5 +1,6 @@
 import os
 import argparse
+import datetime
 import gymnasium as gym
 from stable_baselines3 import SAC
 from stable_baselines3.common.callbacks import EvalCallback, CallbackList
@@ -12,6 +13,145 @@ except ImportError:
     wandb = None
     WandbCallback = None
 
+import stable_worldmodel as swm
+
+# Define default architectures and hyperparameters
+
+ARCH_SMALL = {'net_arch': [256, 256]}
+ARCH_MEDIUM = {'net_arch': [400, 300]}
+ARCH_LARGE = {'net_arch': [1024, 1024]}
+
+DEFAULT_CFG = {
+    'batch_size': 256,
+    'policy_kwargs': ARCH_SMALL,
+    'learning_starts': 10000,
+}
+
+QUADRUPED_CFG = {
+    'batch_size': 1024,
+    'gradient_steps': 1,
+    'learning_starts': 10000,
+    'policy_kwargs': ARCH_MEDIUM,
+    'tau': 0.005,
+}
+
+WALKER_CFG = {
+    'batch_size': 1024,
+    'gradient_steps': 2,
+    'train_freq': 1,
+    'policy_kwargs': ARCH_MEDIUM,
+    'learning_starts': 10000,
+    'tau': 0.005,
+}
+
+HUMANOID_CFG = {
+    'batch_size': 1024,
+    'gradient_steps': 2,
+    'policy_kwargs': ARCH_LARGE,
+    'learning_starts': 25000,
+}
+
+# Registry mapping domains and tasks to their SAC hyperparameters
+PARAMS_REGISTRY = {
+    'pendulum': {
+        'swingup': {
+            **DEFAULT_CFG,
+            'gradient_steps': 2,
+            'batch_size': 1024,
+            'learning_starts': 25000,
+            'policy_kwargs': ARCH_MEDIUM,
+            'total_timesteps': 750_000,
+        }
+    },
+    'ballincup': {'default': {**DEFAULT_CFG, 'total_timesteps': 750_000}},
+    'cartpole': {'default': {**DEFAULT_CFG, 'total_timesteps': 750_000}},
+    'quadruped': {
+        'walk': {**QUADRUPED_CFG, 'total_timesteps': 2_500_000},
+        'run': {**QUADRUPED_CFG, 'total_timesteps': 3_500_000},
+    },
+    'cheetah': {
+        'run': {**DEFAULT_CFG, 'total_timesteps': 750_000},
+        'run-backward': {**DEFAULT_CFG, 'total_timesteps': 750_000},
+        'run-front': {**DEFAULT_CFG, 'total_timesteps': 750_000},
+        'run-back': {**DEFAULT_CFG, 'total_timesteps': 750_000},
+        'stand-front': {**DEFAULT_CFG, 'total_timesteps': 1_000_000},
+        'stand-back': {**DEFAULT_CFG, 'total_timesteps': 1_000_000},
+        'lie-down': {**DEFAULT_CFG, 'total_timesteps': 1_000_000},
+        'jump': {**DEFAULT_CFG, 'total_timesteps': 1_500_000},
+        'legs-up': {**DEFAULT_CFG, 'total_timesteps': 1_500_000},
+        'flip': {**DEFAULT_CFG, 'total_timesteps': 1_500_000},
+        'flip-backward': {**DEFAULT_CFG, 'total_timesteps': 1_500_000},
+    },
+    'reacher': {
+        'easy': {
+            **DEFAULT_CFG,
+            'total_timesteps': 750_000,
+            'learning_starts': 5000,
+        },
+        'hard': {
+            **DEFAULT_CFG,
+            'total_timesteps': 1_000_000,
+            'learning_starts': 5000,
+        },
+    },
+    'walker': {
+        'stand': {**WALKER_CFG, 'total_timesteps': 1_000_000},
+        'walk': {**WALKER_CFG, 'total_timesteps': 1_000_000},
+        'run': {**WALKER_CFG, 'total_timesteps': 1_500_000},
+        'walk-backward': {**WALKER_CFG, 'total_timesteps': 1_500_000},
+        'lie_down': {**WALKER_CFG, 'total_timesteps': 1_500_000},
+        'flip': {**WALKER_CFG, 'total_timesteps': 2_500_000},
+        'arabesque': {**WALKER_CFG, 'total_timesteps': 2_500_000},
+        'legs_up': {**WALKER_CFG, 'total_timesteps': 2_500_000},
+    },
+    'hopper': {
+        'stand': {
+            **DEFAULT_CFG,
+            'batch_size': 1024,
+            'gradient_steps': 2,
+            'tau': 0.005,
+            'total_timesteps': 2_000_000,
+        },
+        'hop': {
+            **DEFAULT_CFG,
+            'batch_size': 1024,
+            'gradient_steps': 2,
+            'tau': 0.005,
+            'total_timesteps': 2_500_000,
+        },
+        'hop-backward': {
+            **DEFAULT_CFG,
+            'batch_size': 1024,
+            'gradient_steps': 2,
+            'tau': 0.005,
+            'total_timesteps': 4_000_000,
+        },
+        'flip': {
+            **DEFAULT_CFG,
+            'batch_size': 1024,
+            'gradient_steps': 2,
+            'tau': 0.005,
+            'total_timesteps': 4_000_000,
+        },
+        'flip-backward': {
+            **DEFAULT_CFG,
+            'batch_size': 1024,
+            'gradient_steps': 2,
+            'tau': 0.005,
+            'total_timesteps': 4_000_000,
+        },
+    },
+    'finger': {
+        'spin': {**DEFAULT_CFG, 'total_timesteps': 750_000},
+        'turn_easy': {**DEFAULT_CFG, 'total_timesteps': 1_000_000},
+        'turn_hard': {**DEFAULT_CFG, 'total_timesteps': 1_500_000},
+    },
+    'humanoid': {
+        'stand': {**HUMANOID_CFG, 'total_timesteps': 5_000_000},
+        'walk': {**HUMANOID_CFG, 'total_timesteps': 5_000_000},
+        'run': {**HUMANOID_CFG, 'total_timesteps': 5_000_000},
+    },
+}
 
 def train_expert(
     env_id: str,
@@ -37,10 +177,17 @@ def train_expert(
         env,
         verbose=1,
         seed=seed,
-        tensorboard_log=f'./logs/tensorboard/{env_id.replace("/", "_")}_sac/',
+        tensorboard_log=f'./logs/tensorboard/{env_id.replace("/", "_")}_sac/{datetime.datetime.now().strftime("%d%m%y/%H%M%S")}',
+        learning_rate=3e-4,
+        batch_size=2048,
+        gradient_steps=2,
+        train_freq=1,
+        policy_kwargs={"net_arch": [512, 512], "n_critics": 2},
+        learning_starts=10000,
+        tau=0.005,
     )
 
-    save_path = f'./policies/{env_id.replace("/", "_")}_expert'
+    save_path = f'./policies/{env_id.replace("/", "_")}_expert/{datetime.datetime.now().strftime("%d%m%y/%H%M%S")}'
     os.makedirs(save_path, exist_ok=True)
 
     eval_callback = EvalCallback(
@@ -101,7 +248,7 @@ if __name__ == '__main__':
     parser.add_argument(
         '--env',
         type=str,
-        default='swm/FetchReach-v3',
+        default='swm/FetchPush-v3',
         help='Target SWM Environment ID',
     )
     parser.add_argument(

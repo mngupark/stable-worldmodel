@@ -6,4 +6,4 @@ from .fetch import FetchWrapper
 
 gym.register_envs(gymnasium_robotics)
 
-__all__ = ['FetchWrapper']
+__all__ = ['FetchWrapper', 'ExpertPolicy']

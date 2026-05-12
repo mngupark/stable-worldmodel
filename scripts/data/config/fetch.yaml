@@ -1,0 +1,28 @@
+defaults:
+  - _self_
+  - launcher/local
+
+hydra:
+  output_subdir: null
+  mode: MULTIRUN
+  run:
+    dir: .
+
+cache_dir: null
+dataset_name: fetch
+expert_ckpt_path: ./stable-expert/models/sac_fetch
+device: cuda
+
+world:
+  num_envs: 10
+  max_episode_steps: 50
+  image_shape: [224, 224]
+
+expert:
+  model_path: 
+
+num_workers: 4
+seed: 3072
+num_traj: 10000
+
+options: null
