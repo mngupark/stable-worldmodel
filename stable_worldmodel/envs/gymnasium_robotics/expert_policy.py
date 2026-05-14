@@ -1,3 +1,4 @@
+import gymnasium as gym
 import numpy as np
 from stable_worldmodel.policy import BasePolicy
 
@@ -6,6 +7,8 @@ class ExpertPolicy(BasePolicy):
         self,
         ckpt_path: str,
         device: str = 'cpu',
+        env: gym.Env = None,
+        obs_keys: list[str] = None,
         **kwargs,
     ):
         """
@@ -15,6 +18,8 @@ class ExpertPolicy(BasePolicy):
         Args:
             ckpt_path (str): Path to the stable_baselines3 .zip file of the trained policy.
             device (str): Device to load the model on, e.g., 'cpu' or 'cuda'.
+            env (gym.Env): Gymnasium environment to infer action space and observation space from.
+            obs_keys (list[str]): List of observation keys to use.
         """
         super().__init__(**kwargs)
 
@@ -26,26 +31,27 @@ class ExpertPolicy(BasePolicy):
                 "Please install it via 'uv add stable-baselines3'."
             )
 
-        self.model = sb3.SAC.load(ckpt_path, device=device)
+        self.model = sb3.SAC.load(ckpt_path, device=device, env=env, replay_buffer_class=sb3.HerReplayBuffer, replay_buffer_kwargs=dict(n_sampled_goal=4, goal_selection_strategy="future"))
         self.type = 'expert'
+        self.states = None
+        self.obs_keys = obs_keys
 
     def set_env(self, env):
         self.env = env
 
     def get_action(self, info_dict, **kwargs):
-        assert 'observation' in info_dict, (
-            'Observation key missing in info_dict'
+        assert all(key in info_dict.keys() for key in self.obs_keys), (
+            'One or more observation keys missing in info_dict'
         )
 
-        obs = info_dict['observation'].squeeze()
+        obs_dict = {}
+        for obs_key in self.obs_keys:
+            obs_dict[obs_key] = info_dict[obs_key].squeeze()
 
-        if obs.ndim == 1:
-            obs = obs[None, :]
-
-        if len(obs.shape) != 2:
-            raise ValueError(
-                f'Expected observation shape (num_envs, obs_dim), got {obs.shape}'
-            )
-
-        actions, _ = self.model.predict(obs, deterministic=True)
+        actions, self.states = self.model.predict(
+            obs_dict,
+            state=self.states,
+            episode_start=~np.logical_or(info_dict['terminated'], info_dict['truncated']).squeeze(),
+            deterministic=True,
+        )
         return np.clip(actions, -1.0, 1.0).astype(np.float32)
