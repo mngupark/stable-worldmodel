@@ -8,10 +8,10 @@ n_gpus: 1
 cpus_per_task: 8
 cache_dir: null # Use stable-worldmodel default cache
 wandb:
-  enabled: true
+  enabled: false
   config:
-    entity: mngupark
-    project: gwm
+    entity: stable-wm
+    project: stable-wm
     name: ${output_model_name}
     id: ${subdir}
     resume: allow

@@ -1,7 +1,7 @@
 import os
 from pathlib import Path
 
-os.environ['MUJOCO_GL'] = 'egl'
+os.environ['MUJOCO_GL'] = 'glfw'
 import hydra
 import numpy as np
 from loguru import logger as logging
