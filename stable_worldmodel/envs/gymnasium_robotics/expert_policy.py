@@ -31,7 +31,7 @@ class ExpertPolicy(BasePolicy):
                 "Please install it via 'uv add stable-baselines3'."
             )
 
-        self.model = sb3.SAC.load(ckpt_path, device=device, env=env, replay_buffer_class=sb3.HerReplayBuffer, replay_buffer_kwargs=dict(n_sampled_goal=4, goal_selection_strategy="future"))
+        self.model = sb3.SAC.load(ckpt_path, device=device, env=env)
         self.type = 'expert'
         self.states = None
         self.obs_keys = obs_keys
